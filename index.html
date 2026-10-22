@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+  <title>ショットマップ</title>
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#0c4a6e">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="ショットマップ">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="vendor/maplibre-gl.css">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div id="map"></div>
+
+  <header id="top">
+    <button id="btnCourse" class="course-btn" aria-label="コースを選ぶ"></button>
+    <select id="hole" aria-label="ホール"></select>
+    <button id="btnComp" class="comp" title="競技モード（ゴルフ規則4.3対応）">競技</button>
+    <button id="btnSettings" title="設定" aria-label="設定">⚙</button>
+  </header>
+  <div id="fab">
+    <button id="btnUp" title="狙い方向を上にする" aria-label="狙い方向を上に">⇧</button>
+    <button id="btnGps" title="現在地を打つ位置にする" aria-label="現在地">◎</button>
+    <button id="btnHoleEdit" title="このホールのティー/グリーンを登録" aria-label="ホール登録">✎</button>
+  </div>
+
+  <div id="banner" hidden><span id="bannerText"></span><button id="bannerCancel">やめる</button></div>
+  <div id="toast" hidden><span id="toastText"></span><button id="toastAction" hidden></button></div>
+
+  <div id="legend" aria-label="凡例">
+    <div class="lg-title">着弾範囲</div>
+    <div><i class="sw sw50"></i>50%</div>
+    <div><i class="sw sw80"></i>80%</div>
+    <div><i class="sw sw95"></i>95%</div>
+    <div><i class="dot dot-mean"></i>平均</div>
+    <div id="legendDots"><i class="dot dot-sim"></i>試行球</div>
+  </div>
+
+  <section id="sheet">
+    <div id="clubs" class="chips"></div>
+    <div id="info"></div>
+    <div class="row adv">
+      <span class="lbl">方向</span>
+      <button class="nudge" data-d="-1" aria-label="左へ1度">◀</button>
+      <input type="range" id="dir" min="-20" max="20" step="0.5" value="0" aria-label="方向の微調整">
+      <button class="nudge" data-d="1" aria-label="右へ1度">▶</button>
+      <output id="dirOut">0°</output>
+    </div>
+    <div class="row">
+      <div class="seg" id="tapMode">
+        <button data-v="aim" class="on">タップ=狙い</button>
+        <button data-v="ball">タップ=打つ位置</button>
+      </div>
+      <button id="btnRecord" class="pill rec-btn">📍 結果を記録</button>
+      <button id="btnRings" class="pill">リング 表示</button>
+      <button id="btnCalib" class="pill" title="カートナビや距離杭の残り距離で打つ位置を合わせる">残り距離で補正</button>
+      <button id="btnDots" class="pill adv">点群 表示</button>
+      <button id="btnWind" class="pill adv">風 なし</button>
+    </div>
+    <div id="windPanel" hidden>
+      <div class="compass" id="compass">
+        <button data-a="315">↘</button><button data-a="0">↓<small>アゲ</small></button><button data-a="45">↙</button>
+        <button data-a="270">→<small>左から</small></button><button data-a="off" class="calm">無風</button><button data-a="90">←<small>右から</small></button>
+        <button data-a="225">↗</button><button data-a="180">↑<small>フォロー</small></button><button data-a="135">↖</button>
+      </div>
+      <div class="wind-col">
+        <div class="wind-speed">
+          <span class="lbl">風速</span>
+          <input type="range" id="windSpeed" min="0" max="10" step="0.5" value="0" aria-label="風速">
+          <output id="windSpeedOut">0 m/s</output>
+        </div>
+        <div class="wind-speed">
+          <span class="lbl">気温</span>
+          <input type="number" id="courseTemp" step="1" min="-10" max="45" aria-label="気温" class="temp-input">
+          <span class="lbl">℃</span>
+        </div>
+        <p class="hint">矢印は風の流れる向き（画面上=打つ方向）。気温は空気の薄さとして飛距離に反映します。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 初回設定 -->
+  <dialog id="onboarding" class="full">
+    <div class="ob-step" data-step="0">
+      <h2>ようこそ</h2>
+      <p>番手と狙いを選ぶと、あなたの球がどこに落ちそうかを地図上に表示します。</p>
+      <p>最初に、だいたいの腕前と飛距離を教えてください（1〜2分）。ラウンド中に結果を記録するほど、あなた専用の予測になっていきます。</p>
+      <div class="notice">
+        <b>ご利用にあたって</b>
+        <ul>
+          <li>表示される確率は統計的な<b>推定</b>で、結果を保証するものではありません。</li>
+          <li>高低差・風の補正や番手のおすすめは、競技（ゴルフ規則4.3）では使えません。競技では「競技」モードをオンにしてください。</li>
+          <li>入力したデータはこの端末の中だけに保存されます。</li>
+        </ul>
+        <label class="check"><input type="checkbox" id="obAgree"> 上記を理解しました</label>
+      </div>
+    </div>
+    <div class="ob-step" data-step="1" hidden>
+      <h2>平均スコア</h2>
+      <p class="hint">18ホールの最近の平均。ばらつきや大きなミスの起こりやすさの目安に使います。</p>
+      <div class="score-row"><input type="range" id="obScore" min="70" max="130" step="1" value="95"><output id="obScoreOut">95</output></div>
+      <label class="field">距離の単位 <select id="obUnit"><option value="yd">ヤード</option><option value="m">メートル</option></select></label>
+    </div>
+    <div class="ob-step" data-step="2" hidden>
+      <h2>バッグのクラブ</h2>
+      <p class="hint">持っているクラブを選んでください（ウェッジはロフト角）。</p>
+      <div id="obBag" class="bag-grid"></div>
+    </div>
+    <div class="ob-step" data-step="3" hidden>
+      <h2>飛距離</h2>
+      <div class="seg" id="obDistMode">
+        <button data-v="carry" class="on">キャリー（落下点まで）</button>
+        <button data-v="total">トータル（転がり込み）</button>
+      </div>
+      <p class="hint">ドライバーと7番アイアン（無ければ近い番手）だけ入れて「自動で埋める」を押すと、他の番手は目安で入ります。あとから直せます。</p>
+      <div class="quick">
+        <label>1W <input type="number" id="obQuick1W" min="50" max="400"></label>
+        <label>7I <input type="number" id="obQuick7I" min="30" max="300"></label>
+        <button id="obFill" class="ghost">自動で埋める</button>
+      </div>
+      <div id="obCarries" class="carry-grid"></div>
+    </div>
+    <div class="ob-step" data-step="4" hidden>
+      <h2>曲がりの傾向</h2>
+      <p class="hint">ミスしたときに多い方向。分からなければ「まっすぐ」で大丈夫です。</p>
+      <div class="tend"><span>全体</span><div class="seg" id="obTendAll"><button data-v="L">左が多い</button><button data-v="S" class="on">まっすぐ</button><button data-v="R">右が多い</button></div></div>
+      <div class="tend"><span>ドライバー</span><div class="seg" id="obTendDr"><button data-v="" class="on">全体と同じ</button><button data-v="L">左が多い</button><button data-v="S">まっすぐ</button><button data-v="R">右が多い</button></div></div>
+    </div>
+    <div class="ob-nav">
+      <button id="obBack" class="ghost" hidden>戻る</button>
+      <span class="spacer"></span>
+      <span id="obProgress" class="hint"></span>
+      <button id="obNext">次へ</button>
+    </div>
+  </dialog>
+
+  <!-- コース選択 -->
+  <dialog id="courseDlg">
+    <form method="dialog" class="dlg-head"><h2>コース</h2><button value="close" aria-label="閉じる">✕</button></form>
+    <div id="courseList" class="course-list"></div>
+    <h3>コースを追加</h3>
+    <label class="field">コース名 <input type="text" id="newCourseName" placeholder="例: ○○カントリー" style="width:170px"></label>
+    <div class="search-row"><input type="text" id="placeQuery" placeholder="住所で探す（例: 長野県木曽郡木曽町日義）"><button id="btnPlaceSearch" class="ghost">検索</button></div>
+    <div id="placeResults" class="place-results"></div>
+    <div class="btns"><button id="btnCourseHere" class="ghost">現在地で作成</button></div>
+    <p class="hint">作成後、各ホールの「登録」でティーとグリーン中心をタップして登録します。</p>
+  </dialog>
+
+  <!-- 設定 -->
+  <dialog id="settings">
+    <form method="dialog" class="dlg-head"><h2>設定</h2><button value="close" aria-label="閉じる">✕</button></form>
+
+    <h3>あなたのデータ</h3>
+    <p id="profileSummary" class="status"></p>
+    <div class="btns"><button id="btnEditProfile" class="ghost">腕前・飛距離を編集</button></div>
+    <div class="table-wrap"><table id="statTable"></table></div>
+    <p class="hint">「推定」は入力した飛距離と腕前からの予測、「学習中」「実データ」はラウンドで記録した結果を反映しています。記録が増えるほど推定の影響は小さくなります。</p>
+
+    <h3>表示</h3>
+    <label class="field">距離リングの基準をセンターから奥へ（表示単位・エッジ表示のカート用）<input type="number" id="ringOffset" step="1" min="0" max="40"></label>
+    <label class="field">距離の単位 <select id="unit"><option value="yd">ヤード</option><option value="m">メートル</option></select></label>
+
+    <details>
+      <summary>上級者向け: ショットデータ（CSV）取込</summary>
+      <p class="hint">弾道測定器などから書き出したCSV。列名 club / carry / offline / landing / date を自動判別します（offline は右+ / 左−、または「L 12」「R 8」）。取り込んだ番手は、その番手の実データとして追加されます。</p>
+      <label class="field">単位 <select id="csvUnit"><option value="yd">ヤード</option><option value="m">メートル</option></select></label>
+      <label class="field">練習場の標高（m）<input type="number" id="csvElev" step="1"></label>
+      <label class="field">練習時の気温（℃）<input type="number" id="csvTemp" step="1"></label>
+      <label class="field">CSVファイル <input type="file" id="csvFile" accept=".csv,.tsv,.txt,text/csv"></label>
+      <textarea id="csvText" rows="4" placeholder="CSVを貼り付けても取込できます"></textarea>
+      <div class="btns"><button id="btnImport">取込</button></div>
+    </details>
+
+    <details>
+      <summary>上級者向け: 計算の係数</summary>
+      <label class="field">推定の重み（何球分の実データとみなすか）<input type="number" id="priorStrength" min="1" max="100" step="1"></label>
+      <label class="field">直近重視（重みが半分になる日数・0=無効）<input type="number" id="halfLifeDays" min="0" max="720" step="10"></label>
+      <label class="field">向かい風 1m/sあたりキャリー減（%）<input type="number" id="windHead" step="0.1" min="0" max="5"></label>
+      <label class="field">追い風 1m/sあたりキャリー増（%）<input type="number" id="windTail" step="0.1" min="0" max="5"></label>
+      <label class="field">横風 1m/s・キャリー100mあたり横流れ（m）<input type="number" id="windCross" step="0.1" min="0" max="5"></label>
+      <label class="field">標高補正（1000mあたり %）<input type="number" id="altitudePct" step="0.5" min="0" max="15"></label>
+    </details>
+
+    <h3>データの管理</h3>
+    <div class="btns">
+      <button id="btnExport" class="ghost">バックアップを書き出す</button>
+      <label class="ghost file-btn">バックアップから復元<input type="file" id="backupFile" accept=".json,application/json" hidden></label>
+      <button id="btnOffline" class="ghost">このコースを端末に保存</button>
+    </div>
+    <p id="offlineStatus" class="status"></p>
+    <div class="btns"><button id="btnReset" class="danger">すべてのデータを削除</button></div>
+
+    <p class="credit">航空写真・標高: <a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a> ／ 住所検索: 国土地理院 ／ 地図描画: MapLibre GL JS<br>
+      表示される確率は統計的な推定であり、結果を保証するものではありません。</p>
+  </dialog>
+
+  <script src="vendor/maplibre-gl.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
